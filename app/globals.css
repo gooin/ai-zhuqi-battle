@@ -171,7 +171,8 @@ input[type="range"] {
   gap: 12px;
 }
 
-.xiangqiCenterPanel .centerControls {
+.xiangqiCenterPanel .centerControls,
+.chessCenterPanel .centerControls {
   grid-template-columns: minmax(0, 1fr) minmax(220px, 1fr);
 }
 
@@ -260,7 +261,16 @@ button.ghost {
   aspect-ratio: 664 / 706;
 }
 
-.xiangqiMetaBar {
+.boardChess {
+  width: min(100%, 720px);
+  height: auto;
+  max-width: 720px;
+  max-height: none;
+  aspect-ratio: 1 / 1;
+}
+
+.xiangqiMetaBar,
+.chessMetaBar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -291,6 +301,10 @@ button.ghost {
   background: rgba(182, 49, 42, 0.28);
 }
 
+.sideChip.white.active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .sideChip.black.active {
   background: rgba(33, 46, 61, 0.52);
 }
@@ -301,7 +315,8 @@ button.ghost {
   border-color: rgba(255, 214, 138, 0.38);
 }
 
-.xiangqiHintCard {
+.xiangqiHintCard,
+.chessHintCard {
   border: 1px solid rgba(153, 182, 207, 0.34);
   border-radius: 12px;
   background: rgba(148, 176, 199, 0.14);
@@ -309,22 +324,26 @@ button.ghost {
   padding: 10px 12px;
 }
 
-.xiangqiHintCard p {
+.xiangqiHintCard p,
+.chessHintCard p {
   margin: 0;
   font-size: 12px;
   line-height: 1.4;
 }
 
-.xiangqiHintCard p + p {
+.xiangqiHintCard p + p,
+.chessHintCard p + p {
   margin-top: 6px;
 }
 
-.xiangqiTrail .moveTrail {
+.xiangqiTrail .moveTrail,
+.chessTrail .moveTrail {
   display: grid;
   gap: 6px;
 }
 
-.xiangqiTrail .moveTrail p {
+.xiangqiTrail .moveTrail p,
+.chessTrail .moveTrail p {
   margin: 0;
   font-size: 12px;
   color: #d8e8f5;
