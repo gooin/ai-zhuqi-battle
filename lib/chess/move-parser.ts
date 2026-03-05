@@ -1,4 +1,4 @@
-import type { ChessParsedMove } from "./types";
+import type { ChessParsedMove, ChessPieceKind } from "./types";
 
 function parseJSON(text: string): unknown | null {
   try {
@@ -99,12 +99,14 @@ export function parseChessMoveFromLLMText(rawText: string): ChessParsedMove | nu
     to?: unknown;
     reason?: unknown;
     thinking?: unknown;
+    promotion?: unknown;
   };
 
   let fromRow: number | null = null;
   let fromCol: number | null = null;
   let toRow: number | null = null;
   let toCol: number | null = null;
+  let promotion: ChessPieceKind | undefined = undefined;
 
   // 先尝试 fromRow/fromCol/toRow/toCol
   const numericFromRow = Number(payload.fromRow);
@@ -135,7 +137,14 @@ export function parseChessMoveFromLLMText(rawText: string): ChessParsedMove | nu
     }
 
     if (typeof payload.to === "string") {
-      toPair = parseAlgebraic(payload.to);
+      // 处理包含升变信息的走法，如 a8q
+      let toStr = payload.to;
+      const promotionMatch = toStr.match(/[qrbn]$/);
+      if (promotionMatch) {
+        promotion = promotionMatch[0] as ChessPieceKind;
+        toStr = toStr.slice(0, -1);
+      }
+      toPair = parseAlgebraic(toStr);
     }
     if (!toPair) {
       toPair = parseCoordPair(payload.to);
@@ -151,8 +160,34 @@ export function parseChessMoveFromLLMText(rawText: string): ChessParsedMove | nu
     toCol = toPair.col;
   }
 
+  // 解析王车易位记法
+  if (fromRow === null && typeof payload.from === "string") {
+    const fromStr = payload.from.toLowerCase();
+    if (fromStr === "o-o" || fromStr === "0-0") {
+      // 王翼易位
+      fromRow = 0; // 默认白方
+      fromCol = 4;
+      toRow = 0;
+      toCol = 6;
+    } else if (fromStr === "o-o-o" || fromStr === "0-0-0") {
+      // 后翼易位
+      fromRow = 0; // 默认白方
+      fromCol = 4;
+      toRow = 0;
+      toCol = 2;
+    }
+  }
+
   if (fromRow === null || fromCol === null || toRow === null || toCol === null) {
     return null;
+  }
+
+  // 处理 promotion 参数
+  if (payload.promotion) {
+    const promoStr = String(payload.promotion).toLowerCase().charAt(0);
+    if (["q", "r", "b", "n"].includes(promoStr)) {
+      promotion = promoStr as ChessPieceKind;
+    }
   }
 
   return {
@@ -160,6 +195,7 @@ export function parseChessMoveFromLLMText(rawText: string): ChessParsedMove | nu
     fromCol,
     toRow,
     toCol,
+    promotion,
     reason: cleanText(payload.reason).slice(0, 120),
     thinking: normalizeThinking(payload.thinking),
   };

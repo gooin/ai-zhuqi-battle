@@ -16,6 +16,7 @@ export interface ChessMove {
   fromCol: number;
   toRow: number;
   toCol: number;
+  promotion?: ChessPieceKind; // 兵升变选项：q(后), r(车), b(象), n(马)
 }
 
 export interface ChessCandidateMove extends ChessMove {
@@ -67,6 +68,18 @@ export interface ChatMessage {
 export interface ChessConversations {
   white: ChatMessage[];
   black: ChatMessage[];
+}
+
+export interface ChessGameState {
+  // 吃过路兵相关
+  enPassantTarget?: { row: number; col: number } | null;
+  // 王车易位相关
+  whiteKingMoved: boolean;
+  blackKingMoved: boolean;
+  whiteRookLeftMoved: boolean;
+  whiteRookRightMoved: boolean;
+  blackRookLeftMoved: boolean;
+  blackRookRightMoved: boolean;
 }
 
 export interface BuildChessPromptParams {

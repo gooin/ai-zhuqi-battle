@@ -24,6 +24,8 @@ import {
   sideLabel,
   WHITE_SIDE,
   createInitialBoard,
+  createInitialGameState,
+  updateGameState,
 } from "../lib/chess/game";
 import { parseChessMoveFromLLMText } from "../lib/chess/move-parser";
 import { buildChessMovePrompt } from "../lib/chess/prompt";
@@ -53,6 +55,8 @@ export default function ChessClient() {
   const [thinking, setThinking] = useState<boolean>(false);
   const [started, setStarted] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  // 新增游戏状态管理
+  const [gameState, setGameState] = useState(() => createInitialGameState());
 
   const {
     blackConfig: blackAI,
@@ -133,6 +137,7 @@ export default function ChessClient() {
     setError("");
     setMoveHistory([]);
     setAiConversations(createInitialConversations());
+    setGameState(createInitialGameState()); // 重置游戏状态
   }, []);
 
   const clearStats = useCallback(() => {
@@ -151,7 +156,7 @@ export default function ChessClient() {
         return false;
       }
 
-      const result = applyMove(baseBoard, move, side);
+      const { result, newState } = applyMove(baseBoard, move, side, gameState);
       if (!result) {
         return false;
       }
@@ -162,6 +167,7 @@ export default function ChessClient() {
       const capturedText = result.captured ? pieceLabel(result.captured) : "";
 
       setBoard(nextBoard);
+      setGameState(newState); // 更新游戏状态
       setLastMove({
         fromRow: move.fromRow,
         fromCol: move.fromCol,
@@ -188,7 +194,7 @@ export default function ChessClient() {
       ]);
 
       const nextSide = oppositeSide(side);
-      const winnerSide = resolveWinner(nextBoard, nextSide);
+      const winnerSide = resolveWinner(nextBoard, nextSide, newState);
       if (winnerSide) {
         setGameOver(true);
         setWinner(winnerSide);
@@ -251,7 +257,7 @@ export default function ChessClient() {
     let active = true;
 
     const timerId = setTimeout(async () => {
-      const candidates = generateCandidateMoves(currentBoard, side, 24);
+      const candidates = generateCandidateMoves(currentBoard, side, gameState, 24);
       const fallback = pickChessFallbackMove(candidates);
 
       if (candidates.length === 0) {
@@ -306,7 +312,7 @@ export default function ChessClient() {
         }
 
         let selected = parsed;
-        if (!selected || !isLegalMove(liveBoard, selected, side)) {
+        if (!selected || !isLegalMove(liveBoard, selected, side, gameState)) {
           if (!fallback) {
             throw new Error("没有可用合法走法");
           }

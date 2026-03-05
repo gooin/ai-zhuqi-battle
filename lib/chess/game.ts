@@ -60,6 +60,21 @@ export function toAlgebraic(row: number, col: number): string {
   return `${colChar}${rowNum}`;
 }
 
+import type { ChessGameState } from "./types";
+
+// 创建初始游戏状态
+export function createInitialGameState(): ChessGameState {
+  return {
+    enPassantTarget: null,
+    whiteKingMoved: false,
+    blackKingMoved: false,
+    whiteRookLeftMoved: false,
+    whiteRookRightMoved: false,
+    blackRookLeftMoved: false,
+    blackRookRightMoved: false,
+  };
+}
+
 export function createInitialBoard(): ChessBoard {
   const board: ChessBoard = Array.from({ length: CHESS_ROWS }, () =>
     Array.from({ length: CHESS_COLS }, () => null as ChessPiece | null),
@@ -185,6 +200,14 @@ function generateSlidingMoves(
   return moves;
 }
 
+// 暂时存储游戏状态的全局变量，用于伪移动生成
+let currentGameState: ChessGameState | null = null;
+
+// 设置当前游戏状态（用于移动生成时获取吃过路兵信息）
+export function setCurrentGameState(state: ChessGameState) {
+  currentGameState = state;
+}
+
 export function generatePseudoMovesForPiece(
   board: ChessBoard,
   row: number,
@@ -220,6 +243,49 @@ export function generatePseudoMovesForPiece(
         moves.push({ fromRow: row, fromCol: col, toRow, toCol });
       }
     }
+
+    // 王车易位
+    if (currentGameState) {
+      const hasKingMoved = piece.side === WHITE_SIDE
+        ? currentGameState.whiteKingMoved
+        : currentGameState.blackKingMoved;
+
+      if (!hasKingMoved) {
+        const kingRow = piece.side === WHITE_SIDE ? 0 : 7;
+        const kingCol = 4;
+
+        // 检查王是否在正确的位置
+        if (row === kingRow && col === kingCol) {
+          // 王翼易位 (Kingside)
+          const kingsideRookCol = 7;
+          const kingsideRookHasMoved = piece.side === WHITE_SIDE
+            ? currentGameState.whiteRookRightMoved
+            : currentGameState.blackRookRightMoved;
+
+          if (!kingsideRookHasMoved &&
+              !board[kingRow][5] && !board[kingRow][6] && // 王和车之间无棋子
+              !isSquareAttacked(board, kingRow, kingCol, oppositeSide(piece.side)) && // 王未被将军
+              !isSquareAttacked(board, kingRow, 5, oppositeSide(piece.side)) && // 经过格子未被攻击
+              !isSquareAttacked(board, kingRow, 6, oppositeSide(piece.side))) { // 目标格子未被攻击
+            moves.push({ fromRow: row, fromCol: col, toRow: kingRow, toCol: 6 });
+          }
+
+          // 后翼易位 (Queenside)
+          const queensideRookCol = 0;
+          const queensideRookHasMoved = piece.side === WHITE_SIDE
+            ? currentGameState.whiteRookLeftMoved
+            : currentGameState.blackRookLeftMoved;
+
+          if (!queensideRookHasMoved &&
+              !board[kingRow][1] && !board[kingRow][2] && !board[kingRow][3] && // 王和车之间无棋子
+              !isSquareAttacked(board, kingRow, kingCol, oppositeSide(piece.side)) && // 王未被将军
+              !isSquareAttacked(board, kingRow, 3, oppositeSide(piece.side)) && // 经过格子未被攻击
+              !isSquareAttacked(board, kingRow, 2, oppositeSide(piece.side))) { // 目标格子未被攻击
+            moves.push({ fromRow: row, fromCol: col, toRow: kingRow, toCol: 2 });
+          }
+        }
+      }
+    }
   } else if (piece.kind === "p") {
     // 兵：白方向上(row增加)，黑方向下(row减少)
     const forward = piece.side === WHITE_SIDE ? 1 : -1;
@@ -228,7 +294,15 @@ export function generatePseudoMovesForPiece(
     // 向前1格
     const toRow1 = row + forward;
     if (inBounds(toRow1, col) && !board[toRow1][col]) {
-      moves.push({ fromRow: row, fromCol: col, toRow: toRow1, toCol: col });
+      // 检查是否需要升变
+      if (toRow1 === (piece.side === WHITE_SIDE ? 7 : 0)) {
+        // 到达底线，必须升变
+        for (const promotion of ["q", "r", "b", "n"] as ChessPieceKind[]) {
+          moves.push({ fromRow: row, fromCol: col, toRow: toRow1, toCol: col, promotion });
+        }
+      } else {
+        moves.push({ fromRow: row, fromCol: col, toRow: toRow1, toCol: col });
+      }
 
       // 首步可走2格
       if (row === startRow) {
@@ -245,8 +319,26 @@ export function generatePseudoMovesForPiece(
       if (inBounds(toRow1, toCol)) {
         const target = board[toRow1][toCol];
         if (target && target.side !== piece.side) {
-          moves.push({ fromRow: row, fromCol: col, toRow: toRow1, toCol });
+          // 检查是否需要升变
+          if (toRow1 === (piece.side === WHITE_SIDE ? 7 : 0)) {
+            for (const promotion of ["q", "r", "b", "n"] as ChessPieceKind[]) {
+              moves.push({ fromRow: row, fromCol: col, toRow: toRow1, toCol, promotion });
+            }
+          } else {
+            moves.push({ fromRow: row, fromCol: col, toRow: toRow1, toCol });
+          }
         }
+      }
+    }
+
+    // 吃过路兵
+    if (currentGameState?.enPassantTarget) {
+      const { row: targetRow, col: targetCol } = currentGameState.enPassantTarget;
+      if (toRow1 === targetRow && col + 1 === targetCol) {
+        moves.push({ fromRow: row, fromCol: col, toRow: targetRow, toCol: targetCol });
+      }
+      if (toRow1 === targetRow && col - 1 === targetCol) {
+        moves.push({ fromRow: row, fromCol: col, toRow: targetRow, toCol: targetCol });
       }
     }
   }
@@ -306,8 +398,46 @@ function applyMoveUnchecked(board: ChessBoard, move: ChessMove): ChessMoveResult
   }
 
   const next = cloneBoard(board);
-  const captured = next[move.toRow][move.toCol];
-  next[move.toRow][move.toCol] = { ...piece };
+  let captured = next[move.toRow][move.toCol];
+
+  // 处理王车易位
+  if (piece.kind === "k" && Math.abs(move.toCol - move.fromCol) === 2) {
+    const kingRow = move.fromRow;
+    if (move.toCol > move.fromCol) {
+      // 王翼易位 (Kingside)
+      next[kingRow][5] = next[kingRow][7]; // 车移动到 f1/f8
+      next[kingRow][7] = null;
+    } else {
+      // 后翼易位 (Queenside)
+      next[kingRow][3] = next[kingRow][0]; // 车移动到 d1/d8
+      next[kingRow][0] = null;
+    }
+  }
+
+  // 处理吃过路兵
+  if (piece.kind === "p" && !captured && move.toCol !== move.fromCol) {
+    // 兵斜走但目标格子没有棋子，说明是吃过路兵
+    const capturedRow = piece.side === WHITE_SIDE ? move.toRow - 1 : move.toRow + 1;
+    captured = next[capturedRow][move.toCol];
+    if (captured && captured.side !== piece.side && captured.kind === "p") {
+      next[capturedRow][move.toCol] = null;
+    }
+  }
+
+  // 处理兵升变
+  if (piece.kind === "p" && move.promotion) {
+    // 只能升变为后、车、象、马
+    const validPromotions = ["q", "r", "b", "n"];
+    if (validPromotions.includes(move.promotion)) {
+      next[move.toRow][move.toCol] = { side: piece.side, kind: move.promotion };
+    } else {
+      // 默认升变为后
+      next[move.toRow][move.toCol] = { side: piece.side, kind: "q" };
+    }
+  } else {
+    next[move.toRow][move.toCol] = { ...piece };
+  }
+
   next[move.fromRow][move.fromCol] = null;
 
   return {
@@ -316,7 +446,7 @@ function applyMoveUnchecked(board: ChessBoard, move: ChessMove): ChessMoveResult
   };
 }
 
-export function isLegalMove(board: ChessBoard, move: ChessMove, side: ChessSide): boolean {
+export function isLegalMove(board: ChessBoard, move: ChessMove, side: ChessSide, state: ChessGameState): boolean {
   if (!inBounds(move.fromRow, move.fromCol) || !inBounds(move.toRow, move.toCol)) {
     return false;
   }
@@ -326,6 +456,8 @@ export function isLegalMove(board: ChessBoard, move: ChessMove, side: ChessSide)
     return false;
   }
 
+  // 设置当前游戏状态以用于伪移动生成
+  setCurrentGameState(state);
   const pseudo = generatePseudoMovesForPiece(board, move.fromRow, move.fromCol, piece);
   if (!pseudo.some((m) => isSameMove(m, move))) {
     return false;
@@ -339,20 +471,82 @@ export function isLegalMove(board: ChessBoard, move: ChessMove, side: ChessSide)
   return !isInCheck(result.board, side);
 }
 
+// 更新游戏状态
+export function updateGameState(
+  state: ChessGameState,
+  move: ChessMove,
+  piece: ChessPiece,
+): ChessGameState {
+  const newState = { ...state };
+
+  // 更新吃过路兵目标
+  newState.enPassantTarget = null;
+  if (piece.kind === "p") {
+    const isDoubleStep = piece.side === WHITE_SIDE
+      ? (move.fromRow === 1 && move.toRow === 3)
+      : (move.fromRow === 6 && move.toRow === 4);
+    if (isDoubleStep) {
+      newState.enPassantTarget = {
+        row: (move.fromRow + move.toRow) / 2,
+        col: move.fromCol,
+      };
+    }
+  }
+
+  // 更新王车易位状态
+  if (piece.kind === "k") {
+    if (piece.side === WHITE_SIDE) {
+      newState.whiteKingMoved = true;
+    } else {
+      newState.blackKingMoved = true;
+    }
+  } else if (piece.kind === "r") {
+    const row = move.fromRow;
+    const col = move.fromCol;
+
+    if (piece.side === WHITE_SIDE && row === 0) {
+      if (col === 0) {
+        newState.whiteRookLeftMoved = true;
+      } else if (col === 7) {
+        newState.whiteRookRightMoved = true;
+      }
+    } else if (piece.side === BLACK_SIDE && row === 7) {
+      if (col === 0) {
+        newState.blackRookLeftMoved = true;
+      } else if (col === 7) {
+        newState.blackRookRightMoved = true;
+      }
+    }
+  }
+
+  return newState;
+}
+
 export function applyMove(
   board: ChessBoard,
   move: ChessMove,
   side: ChessSide,
-): ChessMoveResult | null {
-  if (!isLegalMove(board, move, side)) {
-    return null;
+  state: ChessGameState,
+): { result: ChessMoveResult | null; newState: ChessGameState } {
+  if (!isLegalMove(board, move, side, state)) {
+    return { result: null, newState: state };
   }
-  return applyMoveUnchecked(board, move);
+
+  const piece = board[move.fromRow][move.fromCol];
+  if (!piece) {
+    return { result: null, newState: state };
+  }
+
+  const result = applyMoveUnchecked(board, move);
+  const newState = updateGameState(state, move, piece);
+
+  return { result, newState };
 }
 
-export function generateLegalMoves(board: ChessBoard, side: ChessSide): ChessMove[] {
+export function generateLegalMoves(board: ChessBoard, side: ChessSide, state: ChessGameState): ChessMove[] {
   const moves: ChessMove[] = [];
 
+  setCurrentGameState(state);
   for (let row = 0; row < CHESS_ROWS; row += 1) {
     for (let col = 0; col < CHESS_COLS; col += 1) {
       const piece = board[row][col];
@@ -362,7 +556,7 @@ export function generateLegalMoves(board: ChessBoard, side: ChessSide): ChessMov
 
       const pseudo = generatePseudoMovesForPiece(board, row, col, piece);
       for (const move of pseudo) {
-        if (isLegalMove(board, move, side)) {
+        if (isLegalMove(board, move, side, state)) {
           moves.push(move);
         }
       }
@@ -397,6 +591,12 @@ function evaluateMove(board: ChessBoard, move: ChessMove, side: ChessSide): numb
   if (movingPiece.kind === "p") {
     const progress = side === WHITE_SIDE ? move.toRow : 7 - move.toRow;
     score += progress * 6;
+
+    // 兵升变奖励
+    if (move.toRow === (side === WHITE_SIDE ? 7 : 0)) {
+      const promotionValue = move.promotion ? PIECE_VALUES[move.promotion] : PIECE_VALUES["q"];
+      score += promotionValue * 5; // 升变奖励非常重要
+    }
   }
 
   // 将军奖励
@@ -409,15 +609,27 @@ function evaluateMove(board: ChessBoard, move: ChessMove, side: ChessSide): numb
     score += 1_000_000;
   }
 
+  // 王车易位奖励
+  if (movingPiece.kind === "k" && Math.abs(move.toCol - move.fromCol) === 2) {
+    score += 100; // 易位奖励
+  }
+
+  // 吃过路兵奖励
+  if (movingPiece.kind === "p" && result.captured && result.captured.kind === "p" &&
+      move.toCol !== move.fromCol && !board[move.toRow][move.toCol]) {
+    score += 30; // 吃过路兵奖励
+  }
+
   return score;
 }
 
 export function generateCandidateMoves(
   board: ChessBoard,
   side: ChessSide,
+  state: ChessGameState,
   limit = 24,
 ): ChessCandidateMove[] {
-  const legal = generateLegalMoves(board, side);
+  const legal = generateLegalMoves(board, side, state);
   const scored = legal.map((move) => ({
     ...move,
     score: evaluateMove(board, move, side),
@@ -426,7 +638,7 @@ export function generateCandidateMoves(
   return scored.slice(0, limit);
 }
 
-export function resolveWinner(board: ChessBoard, sideToMove: ChessSide): ChessSide | "draw" | null {
+export function resolveWinner(board: ChessBoard, sideToMove: ChessSide, state: ChessGameState): ChessSide | "draw" | null {
   const whiteKing = findKing(board, WHITE_SIDE);
   const blackKing = findKing(board, BLACK_SIDE);
 
@@ -437,7 +649,7 @@ export function resolveWinner(board: ChessBoard, sideToMove: ChessSide): ChessSi
     return WHITE_SIDE;
   }
 
-  const legal = generateLegalMoves(board, sideToMove);
+  const legal = generateLegalMoves(board, sideToMove, state);
   if (legal.length === 0) {
     if (isInCheck(board, sideToMove)) {
       // 被将死
